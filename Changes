@@ -1,5 +1,9 @@
 Revision history for Perl extension Acme::Ikamusume
 
+0.08    Thu, 13 Dec 2012 19:55:41 +0900
+        - Stopped rewriting Text::MeCab's methods.
+
+
 0.07  Thu Apr  5 11:03:31 JST 2012
         - Hide T::MeCab::Node from pause (ty wchristian)
           https://github.com/CPAN-API/metacpan-web/issues/524#issuecomment-4953663
