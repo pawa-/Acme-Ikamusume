@@ -3,7 +3,11 @@ use strict;
 use warnings;
 use utf8;
 use Carp;
+use Text::MeCab;
+use Encode qw/find_encoding/;
 use Lingua::JA::Kana;
+
+my $encoding = Encode::find_encoding( Text::MeCab::ENCODING );
 
 sub set_rules {
     my ($self, $translator) = @_;
@@ -31,7 +35,7 @@ sub rules {
     'node.has_extra' => sub {
         my ($self, $node, $words) = @_;
         if (my $word = $node->features->{extra}[0]) {
-            $words->[CURR] = $word;
+            $words->[CURR] = $encoding->decode($word);
         }
         NEXT;
     },
@@ -40,14 +44,16 @@ sub rules {
     'node.has_extra' => sub {
         my ($self, $node, $words) = @_;
         if (($node->features->{extra}[1] || "") eq 'inflection') {
-            if ($node->prev->features->{pos} eq '名詞') {
+            my $prev_pos = $encoding->decode($node->prev->features->{pos});
+
+            if ($prev_pos eq '名詞') {
                 $words->[CURR] = 'じゃなイカ';
             }
-            elsif ($node->prev->features->{pos} eq '副詞') {
+            elsif ($prev_pos eq '副詞') {
                 $words->[CURR] = 'でゲソか';
             }
-            elsif ($node->prev->features->{pos} eq '助動詞' and
-                   $node->prev->surface eq 'です' and
+            elsif ($prev_pos eq '助動詞' and
+                   $encoding->decode($node->prev->surface) eq 'です' and
                    $words->[PREV - 1] !~ /^[いイ]{2}$/) {
                 $words->[PREV] = 'じゃなイ';
                 $words->[CURR] = 'カ';
@@ -56,11 +62,14 @@ sub rules {
             if ($words->[PREV] =~ /(?:イー?カ|ゲソ)$/) {
                 return NEXT;
             }
-            if ($node->prev->features->{inflect} =~ /五段/) {
+
+            my $prev_inflect = $encoding->decode($node->prev->features->{inflect});
+
+            if ($prev_inflect =~ /五段/) {
                 $words->[PREV] = _inflect_5step($words->[PREV], '.' => 'a');
                 $words->[CURR] = 'なイカ';
             }
-            elsif ($node->prev->features->{inflect} =~ /一段|カ変|サ変/) {
+            elsif ($prev_inflect =~ /一段|カ変|サ変/) {
                 $words->[CURR] = 'なイカ';
             }
         }
@@ -70,21 +79,21 @@ sub rules {
     # formal MASU to casual
     'node.readable' => sub {
         my ($self, $node, $words) = @_;
-        unless ($node->features->{original} eq 'ます' and
-                $node->features->{pos} eq '助動詞' and
-                $node->prev->features->{pos} eq '動詞') {
+        unless ($encoding->decode($node->features->{original}) eq 'ます' and
+                $encoding->decode($node->features->{pos}) eq '助動詞' and
+                $encoding->decode($node->prev->features->{pos}) eq '動詞') {
             return NEXT;
         }
-        if ($node->features->{inflect_type} eq '基本形') { # ます
-            $words->[PREV] = $node->prev->features->{original};
+        if ($encoding->decode($node->features->{inflect_type}) eq '基本形') { # ます
+            $words->[PREV] = $encoding->decode($node->prev->features->{original});
             $words->[CURR] = '';
 
-            if ($node->next->features->{pos} =~ /^助詞/) {
+            if ($encoding->decode($node->next->features->{pos}) =~ /^助詞/) {
                 $words->[CURR] .= 'でゲソ';
             }
         }
-        if ($node->features->{inflect_type} eq '連用形' and # ます
-            $node->features->{category3} !~ /五段/) { # 五段 => { -i/っ/ん/い }
+        if ($encoding->decode($node->features->{inflect_type}) eq '連用形' and # ます
+            $encoding->decode($node->features->{category3}) !~ /五段/) { # 五段 => { -i/っ/ん/い }
             $words->[CURR] = '';
         }
         NEXT;
@@ -93,7 +102,7 @@ sub rules {
     # no honorific
     'node.readable' => sub {
         my ($self, $node, $words) = @_;
-        if ($node->feature =~ /^名詞,接尾,人名,/ and
+        if ($encoding->decode($node->feature) =~ /^名詞,接尾,人名,/ and
             $words->[PREV] ne 'イカ娘') {
             $words->[CURR] = '';
         }
@@ -109,9 +118,9 @@ sub rules {
         
         return NEXT if $words->[CURR] =~ /イー?カ|ゲソ/;
         
-        my $curr = katakana2hiragana($node->features->{yomi});
-        my $next = katakana2hiragana($node->next->features->{yomi} || "");
-        my $prev = katakana2hiragana($node->prev->features->{yomi} || "");
+        my $curr = katakana2hiragana($encoding->decode($node->features->{yomi}));
+        my $next = katakana2hiragana($node->next->features->{yomi} ? $encoding->decode($node->next->features->{yomi}) : "");
+        my $prev = katakana2hiragana($node->prev->features->{yomi} ? $encoding->decode($node->prev->features->{yomi}) : "");
        
         $words->[CURR] = $curr if $curr =~ s/い[いー]か(.)/イーカ$1/g;
         $words->[CURR] = $curr if $curr =~ s/いか/イカ/g;
@@ -133,11 +142,11 @@ sub rules {
     # IKA/GESO: DA + postp
     'node.readable' => sub {
         my ($self, $node, $words) = @_;
-        if ($node->prev->surface eq 'だ' and
+        if ($node->prev->surface and $encoding->decode($node->prev->surface) eq 'だ' and
             $words->[PREV] eq 'でゲソ' and
             (
-                $node->features->{pos} =~ /助詞|助動詞/ or
-                $node->features->{category1} eq '接尾'
+                $encoding->decode($node->features->{pos}) =~ /助詞|助動詞/ or
+                $encoding->decode($node->features->{category1}) eq '接尾'
             )
         ) {
             my $kana = Lingua::JA::Kana::kana2romaji($words->[CURR]);
@@ -154,7 +163,7 @@ sub rules {
     },
     'node.readable' => sub {
         my ($self, $node, $words) = @_;
-        if ($node->features->{category1} eq '終助詞' and
+        if ($encoding->decode($node->features->{category1}) eq '終助詞' and
             join("", @$words) =~ /(?:でゲソ|じゃなイカ)[よなね]$/) {
             $words->[CURR] = '';
         }
@@ -167,12 +176,12 @@ sub rules {
         if (not $words->[PREV] or $words->[PREV] !~ /^(?:[いイ]{2})$/) {
             return NEXT;
         }
-        if ($node->surface =~ /^(?:です|でしょう)$/ and
-            $node->next->surface =~ /^か/) {
+        if ($encoding->decode($node->surface) =~ /^(?:です|でしょう)$/ and
+            $node->next->surface and $encoding->decode($node->next->surface) =~ /^か/) {
             $words->[PREV] = 'いイ';
             $words->[CURR] = '';
         }
-        if ($node->surface eq 'でしょうか') {
+        if ($encoding->decode($node->surface) eq 'でしょうか') {
             $words->[PREV] = 'いイ';
             $words->[CURR] = 'カ';
         }
@@ -184,22 +193,22 @@ sub rules {
         my ($self, $node, $words) = @_;
         if ($node->next->stat == 3 or # MECAB_EOS_NODE
             (
-                $node->next->features->{pos} eq '記号' and
-                $node->next->features->{category1} =~ /句点|括弧閉|GESO可/
+                $encoding->decode($node->next->features->{pos}) eq '記号' and
+                $encoding->decode($node->next->features->{category1}) =~ /句点|括弧閉|GESO可/
             )
         ) {
-            if ($node->features->{pos} =~ /^(?:その他|記号|助詞|接頭詞|接続詞|連体詞)/) {
+            if ($encoding->decode($node->features->{pos}) =~ /^(?:その他|記号|助詞|接頭詞|接続詞|連体詞)/) {
                 return NEXT;
             }
             
-            if ($node->features->{pos} eq '助動詞' and
+            if ($encoding->decode($node->features->{pos}) eq '助動詞' and
                 $words->[PREV] eq 'じゃ' and
-                $node->surface eq 'ない') {
+                $encoding->decode($node->surface) eq 'ない') {
                 $words->[CURR] = 'なイカ';
                 return NEXT;
             }
             
-            if ($node->features->{pos} =~ /^助動詞/ and
+            if ($encoding->decode($node->features->{pos}) =~ /^助動詞/ and
                 $words->[PREV] =~ /(?:ゲソ|イー?カ)/) {
                 return NEXT;
             }
@@ -210,9 +219,9 @@ sub rules {
             $words->[CURR] .= 'でゲソ';
         }
         
-        if ($node->features->{pos} eq '動詞' and
-            $node->features->{inflect_type} =~ '基本形' and
-            $node->next->features->{pos} =~ /^助詞/) {
+        if ($encoding->decode($node->features->{pos}) eq '動詞' and
+            $encoding->decode($node->features->{inflect_type}) =~ '基本形' and
+            $encoding->decode($node->next->features->{pos}) =~ /^助詞/) {
             $words->[CURR] .= 'でゲソ';
         }
 

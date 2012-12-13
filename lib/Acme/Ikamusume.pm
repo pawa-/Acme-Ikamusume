@@ -4,8 +4,12 @@ use strict;
 use warnings;
 our $VERSION = '0.07';
 use Carp;
+use Text::MeCab;
+use Encode qw/find_encoding/;
 use Class::Trigger;
 use File::ShareDir;
+
+my $encoding = Encode::find_encoding( Text::MeCab::ENCODING );
 
 use Acme::Ikamusume::MAParser;
 use Acme::Ikamusume::Rule;
@@ -39,7 +43,7 @@ sub geso {
             $node = $node->next
         ) {
             next if $node->stat =~ /[23]/; # skip MECAB_(BOS|EOS)_NODE
-            push @words, $node->surface;
+            push @words, $encoding->decode($node->surface);
             
             $self->call_trigger('node' => ($node, \@words));
             $self->call_trigger('node.has_extra' => ($node, \@words)) if $node->features->{extra};

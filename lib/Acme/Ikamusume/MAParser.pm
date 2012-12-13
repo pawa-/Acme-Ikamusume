@@ -17,6 +17,7 @@ package    # hide from the PAUSE indexer
 {
     no strict 'refs';
     no warnings 'redefine';
+=begin
     for my $method (qw( surface feature )) {
         my $original = \&$method;
         *{$method} = sub {
@@ -24,6 +25,8 @@ package    # hide from the PAUSE indexer
             defined $val ? $encoding->decode($val) : "";
         };
     }
+=end
+=cut
 }
 
 sub features {
